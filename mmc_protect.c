@@ -278,34 +278,43 @@ static ssize_t
 mmc_protect_clear(struct device *dev, struct device_attribute *attr,
                   const char *buf, size_t count)
 {
-  char device_name[11];
   char *device_path;
-  struct block_device *target;
+  struct block_device *target = NULL;
   u32 start;
   u32 size;
+  bool device_holding = false;
 
   if (!g_card) {
     return count;
   }
 
-  device_path = kmalloc(PATH_MAX, GFP_KERNEL);
+  device_path = kmalloc(PATH_MAX + count, GFP_KERNEL);
   if (!device_path) {
     return -ENOMEM;
   }
 
-  sscanf(buf, "%10s", device_name);
-
-  snprintf(device_path, PATH_MAX, "/dev/block/%s", device_name);
+  snprintf(device_path, PATH_MAX, "/dev/block/%s", buf);
   target = lookup_bdev(device_path);
   if (!target) {
     kfree(device_path);
     return count;
   }
 
+  if (!target->bd_part) {
+    if (blkdev_get(target, FMODE_READ | FMODE_NDELAY)) {
+      kfree(device_path);
+      return count;
+    }
+    device_holding = true;
+  }
+
   start = (u32)target->bd_part->start_sect;
   size = (u32)target->bd_part->nr_sects;
 
   clear_write_protect(g_card, start, size);
+  if (device_holding) {
+    blkdev_put(target, FMODE_READ | FMODE_NDELAY);
+  }
   kfree(device_path);
 
   return count;
