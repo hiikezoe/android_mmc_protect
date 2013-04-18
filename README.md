@@ -4,4 +4,4 @@
 
 ## Clear write protect
 
-    $ echo "mmcblk0p12" > /sys/kernel/mmc_protect/clear
+    $ echo -n "mmcblk0p12" > /sys/kernel/mmc_protect/clear
