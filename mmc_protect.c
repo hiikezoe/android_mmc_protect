@@ -301,7 +301,7 @@ mmc_protect_clear(struct device *dev, struct device_attribute *attr,
   }
 
   if (!target->bd_part) {
-    if (blkdev_get(target, FMODE_READ | FMODE_NDELAY)) {
+    if (blkdev_get(target, FMODE_READ | FMODE_NDELAY, 0)) {
       kfree(device_path);
       return count;
     }
