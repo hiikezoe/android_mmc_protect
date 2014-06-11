@@ -19,6 +19,7 @@
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/mmc.h>
+#include <linux/platform_device.h>
 
 struct another_mmc_csd {
   uint8_t erase_grp_size;
@@ -27,7 +28,20 @@ struct another_mmc_csd {
   uint8_t wp_grp_enable;
 };
 
-static struct mmc_card *g_card;
+static struct bus_type *g_mmc_bus;
+
+static struct mmc_card *
+get_mmc_card(void)
+{
+  struct device *card_dev;
+
+  card_dev = bus_find_device_by_name(g_mmc_bus, NULL, "mmc0:0001");
+  if (!card_dev) {
+    return NULL;
+  }
+
+  return mmc_dev_to_card(card_dev);
+}
 
 #define UNSTUFF_BITS(resp,start,size)                       \
   ({                                                        \
@@ -266,10 +280,12 @@ print_write_protect_status(struct mmc_card *card, char *buffer)
 static ssize_t
 mmc_protect_show(struct device *dev, struct device_attribute *attr, char *buffer)
 {
-  if (!g_card) {
+  struct mmc_card *card;
+  card = get_mmc_card();
+  if (!card) {
     return 0;
   }
-  return print_write_protect_status(g_card, buffer);
+  return print_write_protect_status(card, buffer);
 }
 
 static DEVICE_ATTR(status, S_IRUGO, mmc_protect_show, NULL);
@@ -283,8 +299,10 @@ mmc_protect_clear(struct device *dev, struct device_attribute *attr,
   u32 start;
   u32 size;
   bool device_holding = false;
+  struct mmc_card *card;
 
-  if (!g_card) {
+  card = get_mmc_card();
+  if (!card) {
     return count;
   }
 
@@ -301,7 +319,7 @@ mmc_protect_clear(struct device *dev, struct device_attribute *attr,
   }
 
   if (!target->bd_part) {
-    if (blkdev_get(target, FMODE_READ | FMODE_NDELAY)) {
+    if (blkdev_get(target, FMODE_READ | FMODE_NDELAY, 0)) {
       kfree(device_path);
       return count;
     }
@@ -311,7 +329,7 @@ mmc_protect_clear(struct device *dev, struct device_attribute *attr,
   start = (u32)target->bd_part->start_sect;
   size = (u32)target->bd_part->nr_sects;
 
-  clear_write_protect(g_card, start, size);
+  clear_write_protect(card, start, size);
   if (device_holding) {
     blkdev_put(target, FMODE_READ | FMODE_NDELAY);
   }
@@ -334,28 +352,24 @@ static struct attribute_group dev_attr_grp = {
 
 static struct kobject *mmc_protect_kobj;
 
+static struct mmc_driver mmc_driver = {
+  .drv    = {
+    .name = "mmc_protect",
+  },
+};
+
 static int __init mmc_protect_init(void)
 {
-  struct block_device *mmcblk0;
-  struct device *card_dev;
-  int ret;
-
-  mmcblk0 = lookup_bdev("/dev/block/mmcblk0");
-  if (IS_ERR(mmcblk0)) {
-    return -ENXIO;
-  }
-
   mmc_protect_kobj = kobject_create_and_add("mmc_protect", kernel_kobj);
   if (!mmc_protect_kobj) {
     return -ENOMEM;
   }
 
-  ret = sysfs_create_group(mmc_protect_kobj, &dev_attr_grp);
+  mmc_register_driver(&mmc_driver);
+  g_mmc_bus = mmc_driver.drv.bus;
+  mmc_unregister_driver(&mmc_driver);
 
-  card_dev = mmcblk0->bd_disk->part0.__dev.parent;
-  g_card = container_of(card_dev, struct mmc_card, dev);
-
-  return 0;
+  return sysfs_create_group(mmc_protect_kobj, &dev_attr_grp);
 }
 
 static void __exit mmc_protect_exit(void)
