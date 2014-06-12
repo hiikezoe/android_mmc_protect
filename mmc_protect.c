@@ -139,7 +139,7 @@ clear_write_protect(struct mmc_card *card, u32 start, u32 size)
   cmd.opcode = MMC_CLR_WRITE_PROT;
   cmd.flags = MMC_RSP_SPI_R1B | MMC_RSP_R1B | MMC_CMD_AC;
 
-  loop_count = size / write_protect_group_size;
+  loop_count = (size / write_protect_group_size) + 1;
   for (i = 0; i < loop_count; i++) {
     u32 status;
     cmd.arg = start + i * write_protect_group_size;
